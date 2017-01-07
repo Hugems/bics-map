@@ -1,0 +1,1120 @@
+<script type="text/javascript" src="/mapviewer/jslib/v2/oraclemapsv2.js"></script>
+<script language="JavaScript" type="text/javascript">
+// create the root namespace and making sure we're not overwriting it
+var BIOM = BIOM || {};
+
+/**
+ * enumeration of layer types which are used in BIOM.WktLayer
+ */
+BIOM.layerTypeEnum = {
+    POINT: 0,
+    POINT_CLUSTER: 1,
+    POINT_HEATMAP: 2,
+    LINE: 3,
+    POLYGON: 4,
+    properties: {
+        0: {id: 0, name: "point",
+            selectStyle: new OM.style.Color({strokeThickness: 1, outlineStroke: "gold", outlineStrokeThickness: 2.0})
+        },
+        1: {id: 1, name: "point-cluster",
+            selectStyle: new OM.style.Color({strokeThickness: 1, outlineStroke: "gold", outlineStrokeThickness: 2.0})
+        },
+        2: {id: 2, name: "point-heatmap",
+            selectStyle: ""
+        },
+        3: {id: 3, name: "line",
+            selectStyle: ""
+        },
+        4: {id: 4, name: "polygon",
+            selectStyle: new OM.style.Color({strokeThickness: 1, outlineStroke: "gold", outlineStrokeThickness: 2.0})
+        }
+    }
+};
+
+
+/**
+ * enumeration of binding types
+ */
+BIOM.bindingTypeEnum = {
+    NONE: 0, //no binding
+    SIZE: 1, //1 binding on size
+    COLOR: 2, //1 binding on color
+    SIZE_COLOR: 3, //2 bindings on size and color
+    LINE_WEIGHT: 4, //1 binding on lineweight - not implemented yet
+    properties: {
+        0: {type: "no binding"},
+        1: {type: "vary size"},
+        2: {type: "vary color"},
+        3: {type: "vary size and color"},
+        4: {type: "vary line weight"}
+    }
+};
+
+
+/**
+ * enumeration of annotation/attribution
+ */
+BIOM.annoEnum = {
+    stamen: 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, ' +
+        'under <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a>. ' +
+        'Data by <a href="http://openstreetmap.org">OpenStreetMap</a>, under <a href="http://www.openstreetmap.org/copyright">ODbL</a>.',
+    carto: 'Map tiles &copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ' +
+        '&copy; <a href="https://carto.com/attributions">CARTO</a>'
+};
+
+/**
+ * enumeration of base map types leveraging OM.OSMTileLayer
+ */
+BIOM.baseLayerEnum = {
+    ST_TERRAIN: 0,
+    ST_TONER: 1,
+    CDB_GRAY: 2,
+    CDB_DARK: 3,
+    properties: {
+        0: {
+            id: 0,
+            name: "Terrain",
+            filetype: "jpg",
+            type: "Stamen",
+            attr: BIOM.annoEnum.stamen,
+            tiles: ["https://stamen-tiles-a.a.ssl.fastly.net/terrain", "https://stamen-tiles-b.a.ssl.fastly.net/terrain",
+                "https://stamen-tiles-c.a.ssl.fastly.net/terrain", "https://stamen-tiles-d.a.ssl.fastly.net/terrain"
+            ]
+        },
+        1: {
+            id: 1,
+            name: "Toner Lite",
+            filetype: "png",
+            type: "Stamen",
+            attr: BIOM.annoEnum.stamen,
+            tiles: ["https://stamen-tiles-a.a.ssl.fastly.net/toner-lite", "https://stamen-tiles-b.a.ssl.fastly.net/toner-lite",
+                "https://stamen-tiles-c.a.ssl.fastly.net/toner-lite", "https://stamen-tiles-d.a.ssl.fastly.net/toner-lite"
+            ]
+        },
+        2: {
+            id: 2,
+            name: "Simple",
+            filetype: "png",
+            type: "Carto",
+            attr: BIOM.annoEnum.carto,
+            tiles: ["https://cartodb-basemaps-a.global.ssl.fastly.net/light_all", "https://cartodb-basemaps-b.global.ssl.fastly.net/light_all",
+                "https://cartodb-basemaps-c.global.ssl.fastly.net/light_all", "https://cartodb-basemaps-d.global.ssl.fastly.net/light_all"
+            ]
+        },
+        3: {
+            id: 3,
+            name: "Dark",
+            filetype: "png",
+            type: "Carto",
+            attr: BIOM.annoEnum.carto,
+            tiles: ["https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all", "https://cartodb-basemaps-b.global.ssl.fastly.net/dark_all",
+                "https://cartodb-basemaps-c.global.ssl.fastly.net/dark_all", "https://cartodb-basemaps-d.global.ssl.fastly.net/dark_all"
+            ]
+        }
+    }
+};
+
+/**
+ * enumeration of marker shape types which are used in BIOM.Style
+ */
+BIOM.pointShapeEnum = {
+    CIRCLE: 0,
+    SQUARE: 1,
+    DIAMOND: 2,
+    TRIANGLE: 3,
+    STAR: 4,
+    HEXAGON: 5,
+    properties: {
+        0: { type: "circle", cx: 0, cy: 0, width: 15, height: 15 },
+        1: { type: "rectangle", width: 15, height: 15 },
+        2: { type: "path", coords: [ [0, 0, 15, 15, 0, 30, -15, 15] ] },
+        3: { type: "path", coords: [ [-5, -5, 5, -5, 0, 20] ] },
+        4: { type: "path", coords: [ [350,75,379,161,469,161,397,215,423,301,350,250,277,301,303,215,,231,161,321,161] ] },
+        5: { type: "path", coords: [ [850,75,958,137.5,958,262.5,850,325,742,262.6,742,137.5] ] }
+    }
+};
+/**
+ * module that develops an OM Infowindow on the basis of settings and data bindings
+ * Use BIOM.InfoWin.getInfoWinContent() to get the HTML content and
+ * BIOM.InfoWin.getInfoWinOptions(title,bg) to get OM infoWin settings
+ * @param {Object} winOptions - object literal of settings for the infoWindow
+ * @param {Object} drillOptions - object defining the drill path and params
+ * @returns {BIOM.InfoWin}
+ */
+    BIOM.InfoWin = (function() {
+
+		//return the data to support this call: map.displayInfoWindow(point, content, options);
+
+		// private variables
+		var myInfoWindow, Constr, winSettings, drillColumn, drillUrl;
+
+		Constr = function(winOptions, drillOptions) {
+
+			//common window options
+			var defaultWinOptions = {
+				type: 0,
+				w: 160,
+				h: 200,
+				fontSize: "12px",
+				opacity: 0,
+				rowcolor: "#FFFFFF",
+				color: "#F5F5F9",
+				buttonColor: "#111199",
+				fontFamily: "Helvetica"
+			};
+			winSettings = $.extend({}, defaultWinOptions, winOptions || {});
+
+
+			//common window options
+			var defaultDrillOptions = {
+			     Action: "Navigate"
+			};
+			drillParams = $.extend({}, defaultDrillOptions, drillOptions.params || {});
+
+			drillUrl = drillOptions.baseUrl;
+
+			drillColumn = drillOptions.key;
+
+			//build URL from params
+			$.each(drillParams, function(key, val) {
+				drillUrl += "&" + key + "=" + val;
+			});
+
+			console.log("Drill URL is: " + drillUrl);
+
+			//set up info window
+			myInfoWinOptions = {
+				width: winSettings.w,
+				height: winSettings.h,
+				title: "FEATURE",
+				infoWindowStyle: {
+					"background-color": winSettings.color
+				},
+				titleStyle: {
+					"background": winSettings.color,
+					"font-size": winSettings.fontSize,
+					"font-family": winSettings.fontFamily
+				},
+				contentStyle: {
+					"background": winSettings.color,
+					"font-size": winSettings.fontSize,
+					"font-color": "white",
+					"font-family": winSettings.fontFamily
+				},
+				tailStyle: {
+					"offset": 25,
+					"background": winSettings.color
+				},
+				closeButtonStyle: {
+					"mouseOutButton": {
+						"src": "/mapviewer/jslib/v2/images/close_en.png"
+					},
+					"mouseOverButton": {
+						"src": "/mapviewer/jslib/v2/images/close_ov.png"
+					},
+					"width": 14,
+					"height": 14,
+					"xOffset": 0,
+					"yOffset": 0
+				}
+			};
+
+    };
+
+    // public API – prototype
+    Constr.prototype = {
+        constructor: BIOM.InfoWin,
+        getInfoWinOptions: function(title, bgcolor) {
+            myInfoWinOptions.title = title;
+            //myInfoWinOptions.titleStyle.background = bgcolor;
+            return myInfoWinOptions;
+        },
+        getInfoWinContent: function(featureData) {
+            var html = "";
+            var attributes = featureData.getAttributes();
+            var style = featureData.getRenderingStyle();
+            console.log(style);
+            var butColor = winSettings.buttonColor;
+
+			var drillButton = "<a style='background-color: " + butColor + "; border: none; color: white; padding: 2px 2px; " +
+				"text-align: center; display: inline-block; font-size:" + winSettings.fontSize + ";' href='" + drillUrl;
+
+            $.each(attributes, function(key, val) {
+                if (key == drillColumn) {
+                    html += "<tr bgcolor='" + winSettings.rowcolor + "'><td align='right'>" + key + "</td><td align='left'>" + drillButton + "&val1=" + val + "'>Drill On: " + val + "</td></tr>";
+                } else {
+                    html += "<tr bgcolor='" + winSettings.rowcolor + "'><td align='right'>" + key + "</td><td align='left'><b>" + val + "</b></td></tr>";
+                }
+            });
+
+            return "<table style='margin:auto'>" + html + "</table>";
+        }
+    };
+
+    return Constr;
+
+    })();
+/**
+ * module that parses WKT data and develops an OM Vector layer based on settings and params
+ * @param {Object} markerOptions - object literal of settings for the marker
+ * @param {Object} labelOptions - object literal of settings for the label in the marker
+ * @param {Object} bindOptions - object literal of settings for column and symbology binding
+ * @returns {BIOM.Map}
+ */
+BIOM.Map = (function() {
+
+    // private variables
+    var baseLayer, omap, Constr;
+    var srid = 8307;
+
+    var baseURL = '/mapviewer';
+
+    Constr = function(mapDivName, mapOptions, baseOptions, layerData) {
+        //console.log("Init map on this div:" + mapDivName);
+
+        //map options
+        var defaultMapOptions = {
+            lat: 36,
+            lng: -115,
+            zoom: 7
+        };
+        var mapSettings = $.extend({}, defaultMapOptions, mapOptions || {});
+
+        //basemap options
+        var defaultBaseOptions = {
+            baseid: 0,
+            opacity: 0.75
+        };
+        var baseSettings = $.extend({}, defaultBaseOptions, baseOptions || {});
+
+        omap = new OM.Map(document.getElementById(mapDivName), {
+            mapviewerURL: baseURL
+        });
+
+        //add basemap
+        this.setBasemap(baseSettings.baseid, {
+            opacity: baseSettings.opacity
+        });
+
+        //add zoom buttons
+        var navigationPanelBar = new OM.control.NavigationPanelBar({
+            style: 3
+        });
+        omap.addMapDecoration(navigationPanelBar);
+        var center = new OM.geometry.Point(mapSettings.lng, mapSettings.lat, srid);
+
+        //start map
+        omap.setMapCenter(center);
+        omap.setMapZoomLevel(mapSettings.zoom);
+        omap.init();
+    };
+
+    // public API – prototype
+    Constr.prototype = {
+        constructor: BIOM.Map,
+        setBasemap: function(id, options) {
+            var defaultOptions = {
+                opacity: 0.5,
+                baseid: 1
+            };
+            var settings = $.extend({}, defaultOptions, options || {});
+            //get the enumeration to get the basemap details
+            var lid = (BIOM.baseLayerEnum.properties.hasOwnProperty(id)) ? id : settings.baseid;
+            var baseMapProps = BIOM.baseLayerEnum.properties[lid];
+
+            //define base tiles from enum
+            baseLayer = new OM.layer.OSMTileLayer("baseMap", baseMapProps.tiles, baseMapProps.format);
+            baseLayer.setOpacity(settings.opacity);
+
+            //setup attribution
+            var copyright = new OM.control.CopyRight({
+                anchorPosition: 6,
+                textValue: baseMapProps.attr,
+                fontSize: 8,
+                fontFamily: "Arial",
+                fontColor: "#aaaaaa"
+            });
+            omap.addMapDecoration(copyright);
+
+            //add to map
+            omap.addLayer(baseLayer);
+        },
+        getMap: function() {
+            return omap;
+        },
+        addLayer: function(biomLayer) {
+            omap.addLayer(biomLayer.getLayer());
+        }
+    };
+
+    return Constr;
+
+})();
+/**
+ * module that develops an OM Style on the basis of settings and data bindings
+ * Use BIOM.Style.getStyle() to get the OM Style
+ * @param {Enum} layerType - integer code for the type of layer being stylized
+ * @param {Object} options - object literal of settings for the style - has sub objects
+ * @param {Object} bindData - array of data columns for binding Color and Fill
+ * @returns {BIOM.Marker}
+ */
+BIOM.Style = (function() {
+
+    // private variables
+    var myStyle, myLabelStyle, mySelectStyle, myHoverStyle, myVariableMarker, colorFormatter, sizeFormatter, bindAry, StyleConstr;
+
+    StyleConstr = function(layerType, options, featureDataAry) {
+
+        console.log("Getting a BIOM Style for: " + BIOM.layerTypeEnum.properties[layerType].name);
+
+        bindAry = featureDataAry;
+
+        //options
+        var defaultOptions = {
+            marker: {},
+            shape: {},
+            label: {},
+            cluster: {},
+            heat: {},
+            bind: {
+                type: 0,
+                size: {},
+                color: {}
+            }
+        };
+        var settings = $.extend({}, defaultOptions, options || {});
+
+
+        //shape options
+        var defaultShapeOptions = {
+            color: "#FF9933",
+            linecolor: "#FFFFFF",
+            lineweight: 1,
+            opacity: 0.75,
+            color_s: "#F0E68C",
+            strokecolor_s: "#FFD700",
+            opacity_s: 0.5,
+            color_h: "#F0E68C",
+            strokecolor_h: "#FFD700",
+            opacity_h: 1
+        };
+        var shapeSettings = $.extend({}, defaultShapeOptions, settings.shape || {});
+
+        //marker options
+        var defaultMarkerOptions = {
+            color: "#FF9933",
+            size: 15,
+            name: 0,
+            type: 0,
+            opacity: 0.75,
+            color_s: "#F0E68C",
+            strokecolor_s: "#FFD700",
+            opacity_s: 0.5,
+            color_h: "#F0E68C",
+            strokecolor_h: "#FFD700",
+            opacity_h: 1
+        };
+        var markerSettings = $.extend({}, defaultMarkerOptions, settings.marker || {});
+
+        //heat options
+        var defaultHeatOptions = {
+            radius: 40,
+            ramp: "OrRd",
+            steps: "4",
+            source: "COUNT",
+            unit: "pixel",
+            scare: true
+        };
+        var heatSettings = $.extend({}, defaultHeatOptions, settings.heat || {});
+
+        //label options
+        var defaultLabelOptions = {
+            color: "white",
+            size: 8,
+            name: "Helvetica"
+        };
+        var labelSettings = $.extend({}, defaultLabelOptions, settings.label || {});
+        myLabelStyle = new OM.style.Text({
+            styleName: "Bold Text",
+            fontSize: labelSettings.size,
+            fontWeight: OM.Text.FONTWEIGHT_BOLD,
+            fill: labelSettings.color,
+            fontFamily: labelSettings.name
+        });
+
+        //cluster options
+        var defaultClusterOptions = {
+            start: 20,
+            steps: 5,
+            increment: 10,
+            mincount: 1,
+            threshold: 40,
+            class: "equal"
+        };
+        var clusterSettings = $.extend({}, defaultClusterOptions, settings.cluster || {});
+
+        //bind options
+        var defaultBindOptions = {
+            type: 0,
+            size: {
+                idcol: "ID",
+                valcol: "COUNT",
+                delta: 10,
+                steps: 5
+            },
+            color: {
+                idcol: "ID",
+                valcol: "COUNT",
+                ramp: "OrRd",
+                steps: "5",
+                scale: "log"
+            }
+        };
+        var bindSettings = $.extend({}, defaultBindOptions, settings.bind || {});
+        var bindType = bindSettings.type;
+
+        //set specific style information based on layer type
+        switch (layerType) {
+            //----------------------
+            //0 or 1 -- point and cluster
+            case BIOM.layerTypeEnum.POINT_CLUSTER:
+            case BIOM.layerTypeEnum.POINT:
+                myStyle = new OM.style.Marker({
+                    xOffset: 0,
+                    yOffset: 0,
+                    width: markerSettings.size,
+                    height: markerSettings.size,
+                    vectorDef: [{
+                        shape: BIOM.pointShapeEnum.properties[markerSettings.name],
+                        style: {
+                            fill: markerSettings.color,
+                            stroke: markerSettings.color,
+                            fillOpacity: markerSettings.opacity,
+                            strokeOpacity: 0,
+                            strokeThickness: 0
+                        }
+                    }],
+                    textStyle: myLabelStyle,
+                    textOffset: {
+                        x: 0,
+                        y: 0
+                    }
+                });
+
+                mySelectStyle = new OM.style.Marker({
+                    xOffset: 0,
+                    yOffset: 0,
+                    width: markerSettings.size,
+                    height: markerSettings.size,
+                    vectorDef: [{
+                        shape: BIOM.pointShapeEnum.properties[markerSettings.name],
+                        style: {
+                            fill: markerSettings.color_s,
+                            stroke: markerSettings.strokecolor_s,
+                            fillOpacity: markerSettings.opacity_h,
+                            strokeOpacity: 1,
+                            strokeThickness: 2
+                        }
+                    }],
+                    textStyle: myLabelStyle,
+                    textOffset: {
+                        x: 0,
+                        y: 0
+                    }
+                });
+
+                myHoverStyle = new OM.style.Marker({
+                    xOffset: 0,
+                    yOffset: 0,
+                    width: markerSettings.size,
+                    height: markerSettings.size,
+                    vectorDef: [{
+                        shape: BIOM.pointShapeEnum.properties[markerSettings.name],
+                        style: {
+                            fill: markerSettings.color_h,
+                            stroke: markerSettings.strokecolor_h,
+                            fillOpacity: markerSettings.opacity_h,
+                            strokeOpacity: 1,
+                            strokeThickness: 1
+                        }
+                    }],
+                    textStyle: myLabelStyle,
+                    textOffset: {
+                        x: 0,
+                        y: 0
+                    }
+                });
+
+                break;
+
+            //----------------------
+            //2 -- point heatmap
+            case BIOM.layerTypeEnum.POINT_HEATMAP:
+
+                var ramp = heatSettings.ramp;
+                var classes = heatSettings.steps.toString();
+                var cbRamp = (OM.style.colorbrewer[ramp]) ? OM.style.colorbrewer[ramp][classes] : OM.style.colorbrewer.OrRd[classes];
+                var colors = [];
+                if (heatSettings.scare) {
+                    colors = ["transparent"];
+                    colors.concat(cbRamp);
+                } else {
+                    colors = cbRamp;
+                }
+
+                myStyle = new OM.style.HeatMap({
+                    spotlightRadius: heatSettings.radius,
+                    lengthUnit: heatSettings.unit,
+                    colorStops: colors,
+                    opacity: heatSettings.opacity
+                });
+
+                break;
+
+            //----------------------
+            //3 -- line
+            case BIOM.layerTypeEnum.LINE:
+                break;
+
+            //----------------------
+            //4 -- polygon
+            case BIOM.layerTypeEnum.POLYGON:
+
+                myStyle = new OM.style.Color({
+                    "fill": shapeSettings.color,
+                    "strokeThickness": shapeSettings.lineweight,
+                    "stroke": shapeSettings.linecolor,
+                    "fillOpacity": shapeSettings.opacity,
+                    textStyle: myLabelStyle,
+                    "gradient": "off"
+                });
+
+                mySelectStyle = new OM.style.Color({
+                    "fill": shapeSettings.color_s,
+                    "strokeThickness": shapeSettings.lineweight_s,
+                    "stroke": shapeSettings.linecolor_s,
+                    "fillOpacity": shapeSettings.opacity_s,
+                    textStyle: myLabelStyle,
+                    "gradient": "off"
+                });
+
+                myHoverStyle = new OM.style.Color({
+                    "fill": shapeSettings.color_h,
+                    "strokeThickness": shapeSettings.lineweight_h,
+                    "stroke": shapeSettings.linecolor_h,
+                    "fillOpacity": shapeSettings.opacity_h,
+                    textStyle: myLabelStyle,
+                    "gradient": "off"
+                });
+
+                break;
+
+            default:
+                break;
+
+        }; //end layertype switches
+
+        //provide a variable marker if clustered
+        if (layerType == BIOM.layerTypeEnum.POINT_CLUSTER) {
+            myVariableMarker = new OM.style.VariableMarker({
+                classification: clusterSettings.class,
+                marker: myStyle,
+                startSize: clusterSettings.start,
+                increment: clusterSettings.increment,
+                numClasses: clusterSettings.steps
+            });
+        };
+
+        console.log("In Style - binding for: " + BIOM.bindingTypeEnum.properties[bindType].type);
+        console.log(bindSettings);
+
+        //switch on bindings
+        switch (bindType) {
+            case BIOM.bindingTypeEnum.NONE:
+                //no bindings - just break
+                break;
+
+            case BIOM.bindingTypeEnum.SIZE:
+                this.bindSize(bindSettings.size);
+                break;
+
+            case BIOM.bindingTypeEnum.COLOR:
+                this.bindColor(bindSettings.color);
+                break;
+
+            case BIOM.bindingTypeEnum.SIZE_COLOR:
+                this.bindSize(bindSettings.size);
+                this.bindColor(bindSettings.color);
+                break;
+
+            default:
+                break;
+        }; //end binding switches
+    };
+
+    // public API – prototype
+    StyleConstr.prototype = {
+        constructor: BIOM.Style,
+        bindColor: function(bindOpt) {
+            //color formatter
+            var cbRamp = (OM.style.colorbrewer[bindOpt.ramp]) ? OM.style.colorbrewer[bindOpt.ramp][bindOpt.steps] : OM.style.colorbrewer.OrRd[bindOpt.steps];
+            colorFormatter = new OM.style.ColorFormatter({
+                style: myStyle, //optional, tells the formatter which style it will be affecting
+                colors: cbRamp, //a 7-color series from colorbrewer
+                scale: bindOpt.scale //map the colors to the values using a logarithmic scale or
+            });
+
+            var measureColumn = new OM.Column({
+                data: bindAry, //an array of features
+                keyGetter: function() {
+                    return this.attributes[bindOpt.idcol];
+                }, //'this' here always refers to an element of the data array.
+                valueGetter: function() {
+                    return this.attributes[bindOpt.valcol];
+                },
+            });
+
+            myStyle.bindData('Fill', measureColumn, colorFormatter);
+
+        },
+        bindSize: function(bindOpt) {
+            //size formatter
+            sizeFormatter = new OM.style.SizeFormatter({
+                startingSize: 10,
+                numClasses: bindOpt.steps,
+                delta: bindOpt.delta,
+                scale: bindOpt.scale
+            });
+
+            var measureColumn = new OM.Column({
+                data: bindAry, //an array of <key, value> pairs loaded from data package
+                keyGetter: function() {
+                    return this.attributes[bindOpt.idcol];
+                }, //'this' here always refers to an element of the data array.
+                valueGetter: function() {
+                    return this.attributes[bindOpt.valcol];
+                },
+            });
+
+            myStyle.bindData('Size', measureColumn, sizeFormatter);
+            mySelectStyle.bindData('Size', measureColumn, sizeFormatter);
+            myHoverStyle.bindData('Size', measureColumn, sizeFormatter);
+
+        },
+        bindLineWeight: function(bindOpt) {
+            //size formatter
+            sizeFormatter = new OM.style.SizeFormatter({
+                startingSize: 10,
+                numClasses: bindOpt.steps,
+                delta: bindOpt.delta,
+                scale: bindOpt.scale
+            });
+
+            var measureColumn = new OM.Column({
+                data: bindAry, //an array of <key, value> pairs loaded from data package
+                keyGetter: function() {
+                    return this.attributes[bindOpt.idcol];
+                }, //'this' here always refers to an element of the data array.
+                valueGetter: function() {
+                    return this.attributes[bindOpt.valcol];
+                },
+            });
+
+            myStyle.bindData("StrokeThickness", measureColumn, sizeFormatter);
+            mySelectStyle.bindData("StrokeThickness", measureColumn, sizeFormatter);
+            myHoverStyle.bindData("StrokeThickness", measureColumn, sizeFormatter);
+
+        },
+        getStyle: function() {
+            return myStyle;
+        },
+        getSelectStyle: function() {
+            return mySelectStyle;
+        },
+        getHoverStyle: function() {
+            return myHoverStyle;
+        },
+        getLabelStyle: function() {
+            return myLabelStyle;
+        },
+        getVariableMarkerStyle: function() {
+            return myVariableMarker;
+        }
+    };
+
+    return StyleConstr;
+
+})();
+/**
+* module that parses WKT data and develops an OM Vector layer based on settings and params
+* @param {String} layerName - the name of the layer
+* @param {OM.Map} oMap - reference to the OM map
+* @param {Object[]} dataAry - array of WKT features using the format of:
+		{id:"@1", wkt:"@2", attributes:{id: "@1", ..., ..., }, label:"@1"}
+* @param {Object} layerOptions - object literal of settings for the layer
+* @param {Object} styleOptions - object literal of settings for the style of the layer
+* @returns {BIOM.WktLayer}
+*/
+BIOM.WktLayer = (function() {
+
+    // private variables
+    var myLayer, layerType, bindType, features, bindData, infoPopup, Constr, oracleMap;
+    var myStyle, labelStyle, hoverStyle, selectStyle;
+
+    var shadow = new OM.visualfilter.DropShadow({
+        opacity: 0.5,
+        color: "#000000",
+        offset: 6,
+        radius: 10
+    });
+
+    Constr = function(layerName, oMap, dataAry, layerOptions, styleOptions, drillOptions) {
+        //styleOptions:{ marker:{}, shape:{}, label:{}, cluster:{}, heat:{}, bind:{type:0, size:{}, color:{}} }
+        //layerOptions:{ type:0, zoom:false, shadow:true, drill:true, opacity:0.5}
+        //drillOptions:{ drill: false, key: "ID", baseUrl: "/analytics/saw.dll?Dashboard", params:{see below} };
+
+        oracleMap = oMap;
+
+        //layer settings - type is enumerated above
+        var defaultLayerOptions = {
+            type: 0,
+            zoom: false,
+            shadow: true,
+            drill: false,
+            opacity: 0.75
+        };
+        var layerSettings = $.extend({}, defaultLayerOptions, layerOptions || {});
+        layerType = layerSettings.type;
+
+        console.log("Building a BIOM Layer " + BIOM.layerTypeEnum.properties[layerType].name + " - named:" + layerName);
+
+        //style settings template
+        var defaultStyleOptions = {
+            marker: {},
+            shape: {},
+            label: {
+                color: "white",
+                size: 12,
+                name: "Helvetica",
+                source: "COUNT"
+            },
+            heat: {
+                source: "COUNT"
+            },
+            cluster: {
+                start: 20,
+                steps: 5,
+                increment: 10,
+                mincount: 1,
+                threshold: 40,
+                class: "equal"
+            },
+            bind: {
+                type: 0,
+                size: {},
+                color: {}
+            }
+        };
+        var styleSettings = $.extend({}, defaultStyleOptions, styleOptions || {});
+
+        //drill settings - type is enumerated above
+        var defaultDrillOptions = {
+            drill: true,
+            key: "ID",
+            baseUrl: "/analytics/saw.dll?Dashboard",
+            params: {
+                PortalPath: "%2Fcompany_shared%2FDIRECTORY%20NAME%2F_portal%2FDASHBOARD%20NAME",
+                page: "PAGE%20NAME",
+                action: "Navigate",
+                op1: "eq",
+                col1: '"DIM_TABLE"."DIM_COLUMN"'
+            }
+        };
+
+        var drillSettings = $.extend({}, defaultDrillOptions, drillOptions || {});
+        //create info popup
+        //todo: move to map
+        //calculate pixel heignt based on num of columns
+        var puHeight = Object.keys(dataAry[0].attributes).length * 27;
+        infoPopup = new BIOM.InfoWin({
+            h: puHeight
+        }, drillSettings);
+
+        //define binding type if not provided then set to 0 = none
+        //get a simple array for binding
+        //force binding types per layertype
+        if (layerType == BIOM.layerTypeEnum.POINT_HEATMAP) {
+            bindType = 0;
+            styleSettings.bind.type = 0;
+        } else {
+            bindType = ('type' in styleSettings.bind) ? styleSettings.bind.type : 0;
+        }
+        console.log("Binding the BIOM Layer using " + BIOM.bindingTypeEnum.properties[bindType].type);
+
+        //parse data array into OM features
+        features = BIOM.parser.parseData(dataAry);
+
+        //get BIOM.Style and OM styles
+        var biomStyle = new BIOM.Style(layerType, styleSettings, features);
+        myStyle = biomStyle.getStyle();
+        hoverStyle = biomStyle.getHoverStyle();
+        selectStyle = biomStyle.getSelectStyle();
+        labelStyle = biomStyle.getLabelStyle();
+
+        //setup different OM layers by type
+        if (layerType <= 1) {
+            // BIOM.layerTypeEnum.POINT and BIOM.layerTypeEnum.POINT_CLUSTER
+            myLayer = new OM.layer.MarkerLayer(layerName, {
+                def: {
+                    type: OM.layer.VectorLayer.TYPE_LOCAL
+                }
+            });
+        } else if (layerType == 2) {
+            // BIOM.layerTypeEnum.POINT_HEATMAP
+            myLayer = new OM.layer.VectorLayer(layerName, {
+                def: {
+                    type: OM.layer.VectorLayer.TYPE_LOCAL
+                },
+                styleAttribute: [styleSettings.heat.source]
+            });
+        } else {
+            // BIOM.layerTypeEnum.LINE,  BIOM.layerTypeEnum.POLYGON
+            myLayer = new OM.layer.VectorLayer(layerName, {
+                def: {
+                    type: OM.layer.VectorLayer.TYPE_LOCAL
+                }
+            });
+            myLayer.setLabelingStyle(labelStyle);
+        };
+
+        //set the styles on the layer
+        myLayer.setRenderingStyle(myStyle);
+        myLayer.setSelectStyle(selectStyle);
+        myLayer.setHoverStyle(hoverStyle);
+
+        //set the styles on the layer
+        if (layerType == 1) {
+            var myClusterStyle = biomStyle.getVariableMarkerStyle();
+            //cluster the features
+            myLayer.enableClustering(true, {
+                clusterStyle: myClusterStyle,
+                minPointCount: styleSettings.cluster.mincount,
+                maxClusteringLevel: 20,
+                threshold: styleSettings.cluster.threshold
+            });
+        }
+
+        myLayer.addFeatures(features);
+
+        //add layer listener
+        myLayer.enableFeatureSelection(true);
+        myLayer.enableInfoWindow(false);
+        myLayer.addListener(OM.event.LayerEvent.FEATURE_SELECTED, this.showInfoWindow);
+        myLayer.setOpacity(layerSettings.opacity);
+
+        //boolean tests for extra settings
+        if (layerSettings.shadow) myLayer.setVisualFilter(shadow);
+        if (layerSettings.zoom) myLayer.zoomToTheme();
+
+
+    };
+
+    // public API – prototype
+    Constr.prototype = {
+        constructor: BIOM.WktLayer,
+        showInfoWindow: function(evt) {
+            oracleMap.closeInfoWindows();
+            var feature = evt.selectedFeature;
+            //var bg = (feature.renderingStyle.fill) ? feature.renderingStyle.fill : "#FFFFFF";
+            var bg = "#FFFFFF";
+            console.log(feature);
+            var point = oracleMap.getAbsoluteCursorLocation();
+            var title = feature.id;
+            var content = infoPopup.getInfoWinContent(feature);
+            var options = infoPopup.getInfoWinOptions(title, bg);
+            oracleMap.displayInfoWindow(point, content, options);
+        },
+        //return OM.layer
+        getLayer: function() {
+            return myLayer;
+        },
+        //return String
+        getLayerType: function() {
+            return layerType;
+        },
+        //return array of features
+        getFeatures: function() {
+            return features;
+        },
+        //add OM.Layer to OM.Map
+        addToMap: function() {
+            oracleMap.addLayer(myLayer);
+        }
+    };
+
+    return Constr;
+
+})();
+/**
+ * module extension of OM.TileLayer for Cartodb
+ * creates a parameterized tile layer using carto Tile Map APIs
+ * @param {String} name - layername for internal map management
+ * @param {Object[]} dataAry - array of OM.Feature
+ * @param {Object} configBinding - object literal of settings for column and symbology bindnig
+ * @param {Object} cartoOptions - object literal of core carto settings like format, apiKey etc
+ * @returns {BIOM.Marker}
+ */
+// example tilereq: “https://{username}.carto.com/api/v1/map/named/{template_id}/{layer}/{z}/{x}/{y}.png”
+OM.layer.CDBTileLayer = OM.layer.TileLayer.extend({
+    //object of settings for carto XYZ API
+    cartoSettings: {},
+    //object of directives for carto template
+    cartoConfig: {},
+    //string of directives for carto template
+    cartoConfigStr: "",
+    //define layerName, DataArray, Bindings, cartoDBOptions
+    initialize: function initialize(name, dataAry, configBinding, cartoOptions) {
+
+        //common Carto options
+        var defaultCartoOptions = {
+            https: true,
+            layerid: "all",
+            template: "",
+            format: "png",
+            pre: "color_",
+            user: "cmhughes",
+            api: "c16a0bee443454b008a9479c938f6904b773ff80",
+            opacity: 0.5,
+            placeholder: {
+                label_size: 0,
+                line_opacity: 0.75,
+                test: "boo!"
+            }
+        };
+        cartoSettings = $.extend({}, defaultCartoOptions, cartoOptions || {});
+
+        //set the config object and string
+        this.setCartoConfig(cartoSettings.pre, dataAry, configBinding, cartoSettings.placeholder);
+
+        initialize.base.call(this, name, {
+            //uses same config as OSM
+            tileLayerConfig: OM.layer.TileLayerConfig.CONFIG_OSM,
+            getTileURL: function(level, tileX, tileY, bound) {
+                var configBound = this.tileLayerConfig.bounds;
+                var tileImageHeight = this.tileLayerConfig.tileImageHeight;
+                var zoomLevelConfig = this.tileLayerConfig.zoomLevels[level];
+                var y = (configBound.getMaxY() - bound.getMaxY()) / zoomLevelConfig.resolution / tileImageHeight;
+
+                var isHttps = cartoSettings.https;
+                var layerId = cartoSettings.layerid;
+                var imageFormat = cartoSettings.format;
+                var templ = cartoSettings.template;
+
+                //build root URL
+                var requestUrl = null;
+                requestUrl = (isHttps) ? "https://" : "http://";
+                requestUrl = requestUrl + cartoSettings.user + ".carto.com/api/v1/map/named/" + templ + "/" +
+                    layerId + "/" + level + "/" + tileX + "/" + y + "." + imageFormat;
+
+                //develop URL params
+                var vendorParams = {
+                    apikey: cartoSettings.api
+                };
+                if (OM.notNull(this.cartoConfigStr)) {
+                    vendorParams["config"] = this.cartoConfigStr;
+                }
+
+                //add params to string
+                if (OM.notNull(vendorParams)) {
+                    var prefix = "?";
+                    for (var p in vendorParams) {
+                        if (vendorParams.hasOwnProperty(p)) {
+                            requestUrl = requestUrl + prefix + p + "=" + vendorParams[p];
+                            prefix = "&";
+                        }
+                    }
+                }
+
+                return requestUrl;
+            }
+        });
+        //set the Layer opacity
+        this.setOpacity(cartoSettings.opacity);
+    },
+    getCartoConfig: function() {
+        return this.cartoConfig;
+    },
+    /**
+     * Property setter for the carto config object and carto config string
+     * The carto config object supplies runtime parameters for the Carto tile requests
+     * @param {String} prefix - the prefix for the placeholder usually "color_"
+     * @param {Object[]} featureArray - array of OM.Feature
+     * @param {Object} binding - object defines the color placeholders based on feature values
+     * @param {Object} addOptions - base single placeholders such as line opacity.
+     * @returns void
+     */
+    setCartoConfig: function(prefix, featureArray, binding, addOptions) {
+        /**
+         * TODO reuse binding from WKT Layer - create new module
+         */
+        var cbRamp = (OM.style.colorbrewer[binding.ramp]) ? OM.style.colorbrewer[binding.ramp][binding.steps] : OM.style.colorbrewer.OrRd[binding.steps];
+
+        var colorFormatter = new OM.style.ColorFormatter({
+            colors: cbRamp, //a 7-color series from colorbrewer
+            scale: binding.scale //map the colors to the values using a logarithmic scale or
+        });
+
+        var measureColumn = new OM.Column({
+            data: featureArray, //an array of <key, value> pairs
+            keyGetter: function() {
+                return this.attributes[binding.idcol];
+            }, //'this' here always refers to an element of the data array.
+            valueGetter: function() {
+                return this.attributes[binding.valcol];
+            }
+        });
+        //create base cfg object from addOptions params
+        var cfg = addOptions;
+
+        //add the style params / placehiolders for carto config parameter
+        $.each(featureArray, function(idx, feat) {
+            var val = colorFormatter.resolve(feat.attributes[binding.valcol], measureColumn, feat);
+            var key = prefix + feat.attributes[binding.idcol];
+            cfg[key] = val;
+        });
+        //set the class property to the enriched config object
+        this.cartoConfig = cfg;
+
+        //flatten params to URL encoded strings
+        this.cartoConfigStr = this.getCartoConfigStr(cfg);
+    },
+    /**
+     *@param {Object}  Creates a URL string representation of the carto
+     *                 config object for passing params for placeholders in the request URL
+     *                 eg '...api/v1/map/named/world_borders/all/0/0/0.png?config={color_AK:"fuschia", color_AL:"crimson"}'
+     *                 see https://carto.com/docs/carto-engine/maps-api/named-maps/#placeholder-types
+     *                 for more info on carto placeholders
+     *@returns {String}
+     */
+    //generate this: '{"color_NCA":"green", "color_AFA":"red"}'
+    getCartoConfigStr: function(configObject) {
+
+        var configParam = "";
+        var params = [];
+        for (var p in configObject) {
+            if (configObject.hasOwnProperty(p)) {
+                var pair = '"' + p + '":';
+                if (typeof configObject[p] == "string") {
+                    pair = pair + '"' + configObject[p] + '"';
+                } else {
+                    pair = pair + configObject[p];
+                }
+                params.push(pair);
+            }
+        }
+        configParam = "{" + params.join(",") + "}";
+
+        return encodeURIComponent(configParam);
+    }
+});
+</script>
